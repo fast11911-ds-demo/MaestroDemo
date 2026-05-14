@@ -1,51 +1,92 @@
-const jwt = require('jsonwebtoken');
+require('dotenv').config(); // .env 파일 읽기
+const express = require('express');
+const cors = require('cors'); // 프론트엔드 통신 허용
 const axios = require('axios');
+const jwt = require('jsonwebtoken');
 
-// 환경 변수에서 안전하게 불러옵니다. (.env 파일 활용 권장)
-const INTEGRATION_KEY = process.env.DOCUSIGN_INTEGRATION_KEY; 
-const USER_ID = process.env.DOCUSIGN_USER_ID; 
-const RSA_PRIVATE_KEY = process.env.DOCUSIGN_RSA_PRIVATE_KEY; 
-// 개발(Demo) 환경은 account-d.docusign.com, 운영 환경은 account.docusign.com 입니다.
-const OAUTH_BASE_PATH = 'account-d.docusign.com'; 
+const app = express();
+app.use(express.json());
+app.use(cors()); // 프론트엔드(GitHub Pages 등)의 접근을 허용
 
-/**
- * DocuSign 서버와 통신하여 유효한 Access Token을 받아오는 함수
- */
+// 환경 변수 설정
+const {
+    DOCUSIGN_INTEGRATION_KEY,
+    DOCUSIGN_USER_ID,
+    DOCUSIGN_RSA_PRIVATE_KEY,
+    DOCUSIGN_ACCOUNT_ID,
+    MAESTRO_WORKFLOW_ID
+} = process.env;
+
+const OAUTH_BASE_PATH = 'account-d.docusign.com'; // 개발(Demo) 환경
+
+// 1. DocuSign JWT Token 발급 함수
 async function getDocuSignAccessToken() {
-    // 1. JWT Payload 작성 (만료 시간 설정)
     const now = Math.floor(Date.now() / 1000);
-    const expiresIn = 3600; // 토큰 만료 시간 (1시간)
+    const expiresIn = 3600; 
 
     const payload = {
-        iss: INTEGRATION_KEY,
-        sub: USER_ID,
+        iss: DOCUSIGN_INTEGRATION_KEY,
+        sub: DOCUSIGN_USER_ID,
         aud: OAUTH_BASE_PATH,
         iat: now,
         exp: now + expiresIn,
-        // Maestro 워크플로우를 실행하기 위해 필요한 권한(scope)을 명시합니다.
         scope: 'signature impersonation' 
     };
 
-    // 2. RSA Private Key로 JWT를 암호화하여 서명(Sign)
-    const signedToken = jwt.sign(payload, RSA_PRIVATE_KEY, { algorithm: 'RS256' });
+    // 개행 문자(\n)가 .env에서 올바르게 읽히도록 처리
+    const privateKey = DOCUSIGN_RSA_PRIVATE_KEY.replace(/\\n/g, '\n');
 
-    // 3. 서명된 JWT를 DocuSign Auth 서버로 전송하여 Access Token 요청
+    const signedToken = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
+
     try {
         const response = await axios.post(
             `https://${OAUTH_BASE_PATH}/oauth/token`,
             `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${signedToken}`,
-            {
-                headers: { 
-                    'Content-Type': 'application/x-www-form-urlencoded' 
-                }
-            }
+            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
         );
-
-        console.log("✅ Access Token 발급 성공!");
         return response.data.access_token;
-
     } catch (error) {
-        console.error("❌ JWT 인증 실패:", error.response ? error.response.data : error.message);
-        throw new Error('DocuSign 인증 실패');
+        console.error("JWT Error:", error.response?.data || error.message);
+        throw new Error('Authentication Failed');
     }
 }
+
+// 2. Maestro API 트리거 라우트
+app.post('/trigger-onboarding', async (req, res) => {
+    const { firstName, lastName, propertyName, email } = req.body;
+
+    try {
+        // [STEP A] 토큰 동적 발급
+        const accessToken = await getDocuSignAccessToken(); 
+
+        // [STEP B] Maestro 호출 데이터 맵핑
+        const maestroPayload = {
+            instanceName: `Onboarding - ${propertyName}`,
+            payload: {
+                "SignerEmail": email,
+                "SignerName": `${firstName} ${lastName}`,
+                "PropertyName": propertyName
+            }
+        };
+
+        const docusignUrl = `https://demo.docusign.net/restapi/v1/accounts/${DOCUSIGN_ACCOUNT_ID}/workflows/${MAESTRO_WORKFLOW_ID}/instances`;
+
+        // [STEP C] Maestro API 호출
+        const maestroResponse = await axios.post(docusignUrl, maestroPayload, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        res.status(200).json({ message: 'Workflow Triggered Successfully', data: maestroResponse.data });
+
+    } catch (error) {
+        console.error('Maestro API Error:', error.response?.data || error.message);
+        res.status(500).json({ error: 'Failed to process application' });
+    }
+});
+
+// 서버 실행
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`SH Corp Backend is running on port ${PORT}`));
