@@ -74,7 +74,9 @@
             // 로딩 상태 표시
             submitBtn.innerText = "Processing...";
             submitBtn.disabled = true;
-            statusMessage.classList.add('hidden');
+            statusMessage.classList.remove('hidden');
+            statusMessage.innerText = "Connecting to server...";
+            statusMessage.className = "mt-4 text-center font-medium text-slate-600";
 
             const payload = {
                 firstName: document.getElementById('firstName').value,
@@ -84,9 +86,8 @@
             };
 
             try {
-                // 주의: 로컬 테스트 시 http://localhost:3000 사용. 
-                // 운영 환경(Cloud) 배포 시 해당 백엔드 도메인으로 변경해야 합니다.
-                const BACKEND_URL = '/api/trigger-onboarding';
+                // Vercel Serverless API 경로
+                const BACKEND_URL = '/api/trigger-onboarding'; 
 
                 const response = await fetch(BACKEND_URL, {
                     method: 'POST',
@@ -94,16 +95,25 @@
                     body: JSON.stringify(payload)
                 });
 
+                // HTTP 상태 코드와 상관없이 일단 백엔드의 JSON 응답을 파싱합니다.
+                const result = await response.json(); 
+
                 if (response.ok) {
                     statusMessage.innerText = "Application submitted successfully! Please check your email.";
                     statusMessage.className = "mt-4 text-center font-medium text-green-600";
                     form.reset();
                 } else {
-                    throw new Error("Server error");
+                    // 백엔드에서 에러가 났을 경우
+                    console.error("Backend Error Result:", result);
+                    // 상세 에러(details)가 있으면 띄우고, 없으면 기본 에러를 띄웁니다.
+                    const errorMsg = result.details ? JSON.stringify(result.details) : result.error;
+                    throw new Error(errorMsg);
                 }
             } catch (error) {
-                statusMessage.innerText = "There was an error processing your application.";
-                statusMessage.className = "mt-4 text-center font-medium text-red-600";
+                console.error("Frontend Catch Error:", error);
+                // 디버깅을 위해 상세 에러 메시지를 화면에 출력 (글씨 크기 줄이고 줄바꿈 허용)
+                statusMessage.innerText = `[Error Details] ${error.message}`;
+                statusMessage.className = "mt-4 text-center font-medium text-red-600 text-xs break-words px-4";
             } finally {
                 submitBtn.innerText = "Apply Now";
                 submitBtn.disabled = false;
