@@ -1,0 +1,8 @@
+# Node 모듈 무시
+backend/node_modules/
+
+# 환경 변수 및 비밀키 파일 무시 (매우 중요)
+backend/.env
+
+# Mac OS 시스템 파일 무시
+.DS_Store
