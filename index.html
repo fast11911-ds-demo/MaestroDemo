@@ -86,7 +86,7 @@
             try {
                 // 주의: 로컬 테스트 시 http://localhost:3000 사용. 
                 // 운영 환경(Cloud) 배포 시 해당 백엔드 도메인으로 변경해야 합니다.
-                const BACKEND_URL = 'http://localhost:3000/trigger-onboarding'; 
+                const BACKEND_URL = '/api/trigger-onboarding';
 
                 const response = await fetch(BACKEND_URL, {
                     method: 'POST',
